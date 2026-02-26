@@ -1,4 +1,4 @@
-import PdfSplitter from './components/PdfSplitter';
+import PdfSplitter from './components/editPDF/PdfSplitter';
 
 export default function Home() {
   return (
