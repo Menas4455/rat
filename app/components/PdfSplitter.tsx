@@ -21,7 +21,7 @@ interface PdfFile {
 interface PageInfo {
   index: number;
   rotation: number;
-  dataUrl: string;
+  imageUrl: string; // Cambiamos de dataUrl a imageUrl
   documentType: string;
 }
 
@@ -159,19 +159,64 @@ export default function PdfSplitter() {
     if (selectedPdf?.id === id) setSelectedPdf(null);
   };
 
-  const generatePagePreview = async (pdfDoc: any, pageIndex: number, rotation: number = 0) => {
+  // Función para convertir una página PDF a imagen usando canvas
+  const convertPdfPageToImage = async (pdfDoc: any, pageIndex: number, rotation: number = 0): Promise<string> => {
     try {
-      const newPdf = await PDFDocument.create();
-      const [copiedPage] = await newPdf.copyPages(pdfDoc, [pageIndex]);
+      // Crear un nuevo PDF con solo la página que queremos
+      const singlePagePdf = await PDFDocument.create();
+      const [copiedPage] = await singlePagePdf.copyPages(pdfDoc, [pageIndex]);
       copiedPage.setRotation(degrees(rotation));
-      newPdf.addPage(copiedPage);
-      const pdfBytes = await newPdf.save();
-      // Convertir Uint8Array a ArrayBuffer estándar
-      // Crea un Uint8Array "normal" a partir de pdfBytes
-      const safeBytes = Uint8Array.from(pdfBytes);
-
-      return URL.createObjectURL(new Blob([safeBytes], { type: 'application/pdf' }));
-    } catch {
+      singlePagePdf.addPage(copiedPage);
+      
+      // Obtener las dimensiones de la página
+      const { width, height } = copiedPage.getSize();
+      
+      // Convertir el PDF a un blob
+      const pdfBytes = await singlePagePdf.save();
+      const blob = new Blob([pdfBytes.slice()], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      
+      // Usar un canvas para renderizar el PDF como imagen
+      return new Promise((resolve) => {
+        // Crear un elemento canvas
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        
+        // Crear un objeto URL para el PDF
+        const blobUrl = URL.createObjectURL(blob);
+        
+        // Usar pdf.js de manera dinámica para evitar problemas de importación
+        const script = document.createElement('script');
+        script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js';
+        script.onload = () => {
+          // @ts-ignore
+          const pdfjsLib = window['pdfjs-dist/build/pdf'];
+          pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+          
+          pdfjsLib.getDocument(blobUrl).promise.then((pdf: any) => {
+            pdf.getPage(1).then((page: any) => {
+              const viewport = page.getViewport({ scale: 1.5 });
+              canvas.width = viewport.width;
+              canvas.height = viewport.height;
+              
+              const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+              };
+              
+              page.render(renderContext).promise.then(() => {
+                // Convertir canvas a data URL
+                const imageUrl = canvas.toDataURL('image/jpeg', 0.8);
+                URL.revokeObjectURL(blobUrl);
+                resolve(imageUrl);
+              });
+            });
+          });
+        };
+        document.body.appendChild(script);
+      });
+    } catch (error) {
+      console.error('Error convirtiendo página a imagen:', error);
       return '';
     }
   };
@@ -226,7 +271,7 @@ export default function PdfSplitter() {
         pageInfos.push({
           index: pageIndex,
           rotation: 0,
-          dataUrl: await generatePagePreview(pdf.pdfDoc, pageIndex, 0),
+          imageUrl: await convertPdfPageToImage(pdf.pdfDoc, pageIndex, 0),
           documentType: docType
         });
       }
@@ -252,7 +297,7 @@ export default function PdfSplitter() {
     pages[pageIdx] = {
       ...page,
       rotation: newRotation,
-      dataUrl: await generatePagePreview(selectedPdf.pdfDoc, page.index, newRotation)
+      imageUrl: await convertPdfPageToImage(selectedPdf.pdfDoc, page.index, newRotation)
     };
 
     const updatedPdf = {
@@ -308,9 +353,7 @@ export default function PdfSplitter() {
       }
 
       const pdfBytes = await newPdf.save();
-      // Convertir Uint8Array a ArrayBuffer estándar
-      const buffer = pdfBytes.buffer.slice(0);
-      const blob = new Blob([new Uint8Array(pdfBytes)], { type: 'application/pdf' });
+      const blob = new Blob([pdfBytes.slice()], { type: 'application/pdf' });
       
       results.push({
         name: generateFileName(selectedPdf, docType),
@@ -344,8 +387,6 @@ export default function PdfSplitter() {
       }
 
       const pdfBytes = await newPdf.save();
-      // Convertir Uint8Array a ArrayBuffer estándar
-      const buffer = pdfBytes.buffer.slice(0);
       const blob = new Blob([pdfBytes.slice()], { type: 'application/pdf' });
       
       results.push({
@@ -415,8 +456,6 @@ export default function PdfSplitter() {
           }
 
           const pdfBytes = await newPdf.save();
-          // Convertir Uint8Array a ArrayBuffer estándar
-          const buffer = pdfBytes.buffer.slice(0);
           const blob = new Blob([pdfBytes.slice()], { type: 'application/pdf' });
           
           results.push({
@@ -600,17 +639,22 @@ export default function PdfSplitter() {
                         {doc.pages.map((page: any, idx: number) => (
                           <div key={idx} className="border border-gray-200 rounded-lg p-2 sm:p-3 bg-white">
                             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
-                              {/* Miniatura - responsive */}
+                              {/* Miniatura como imagen - funciona en todos los dispositivos */}
                               <button
                                 onClick={() => setExpandedPage(page)}
-                                className="w-full sm:w-16 h-24 sm:h-20 border border-gray-300 rounded overflow-hidden bg-white flex-shrink-0 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer mx-auto sm:mx-0"
+                                className="w-full sm:w-32 h-40 sm:h-32 border border-gray-300 rounded overflow-hidden bg-white flex-shrink-0 hover:border-blue-500 hover:shadow-md transition-all cursor-pointer mx-auto sm:mx-0"
                               >
-                                <iframe
-                                  src={page.dataUrl}
-                                  className="w-full h-full scale-[0.25] origin-top-left pointer-events-none"
-                                  style={{ transform: 'scale(0.25)', width: '400%', height: '400%' }}
-                                  title={`Página ${page.index + 1}`}
-                                />
+                                {page.imageUrl ? (
+                                  <img 
+                                    src={page.imageUrl} 
+                                    alt={`Página ${page.index + 1}`}
+                                    className="w-full h-full object-contain"
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center bg-gray-100">
+                                    <span className="text-xs text-gray-500">Cargando...</span>
+                                  </div>
+                                )}
                               </button>
                               
                               {/* Información y controles - responsive */}
@@ -677,14 +721,16 @@ export default function PdfSplitter() {
                   </button>
                 </div>
                 
-                {/* Contenido del modal - responsive */}
+                {/* Contenido del modal con imagen - funciona en todos los dispositivos */}
                 <div className="flex-1 p-2 sm:p-4 bg-gray-100 flex items-center justify-center overflow-auto">
-                  <div className="bg-white shadow-lg rounded-lg overflow-hidden w-full">
-                    <iframe 
-                      src={expandedPage.dataUrl} 
-                      className="w-full h-[50vh] sm:h-[60vh] md:h-[70vh]"
-                      title={`Página ${expandedPage.index + 1} expandida`}
-                    />
+                  <div className="bg-white shadow-lg rounded-lg overflow-hidden w-full flex justify-center items-center p-4">
+                    {expandedPage.imageUrl && (
+                      <img 
+                        src={expandedPage.imageUrl} 
+                        alt={`Página ${expandedPage.index + 1}`}
+                        className="max-w-full max-h-[70vh] object-contain"
+                      />
+                    )}
                   </div>
                 </div>
                 
