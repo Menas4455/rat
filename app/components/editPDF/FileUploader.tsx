@@ -1,45 +1,52 @@
 'use client';
 
-import { useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import { useRef } from 'react';
 
 interface FileUploaderProps {
   onFilesSelected: (files: File[]) => void;
 }
 
 export default function FileUploader({ onFilesSelected }: FileUploaderProps) {
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    onFilesSelected(acceptedFiles);
-  }, [onFilesSelected]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/pdf': ['.pdf']
-    },
-    multiple: true
-  });
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      onFilesSelected(Array.from(e.target.files));
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleClick = () => {
+    fileInputRef.current?.click();
+  };
 
   return (
-    <div
-      {...getRootProps()}
-      className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors
-        ${isDragActive 
-          ? 'border-blue-500 bg-blue-50' 
-          : 'border-gray-300 hover:border-gray-400 bg-gray-50'
-        }`}
+    <div 
+      onClick={handleClick}
+      className="border-2 border-dashed border-gray-300 rounded-lg p-6 sm:p-8 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors group"
     >
-      <input {...getInputProps()} />
-      <div className="text-gray-600">
-        {isDragActive ? (
-          <p>Suelta los archivos aquí...</p>
-        ) : (
-          <div>
-            <p className="text-lg mb-2">📁 Arrastra y suelta archivos PDF aquí</p>
-            <p className="text-sm text-gray-500">o haz clic para seleccionar múltiples archivos</p>
-          </div>
-        )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept=".pdf"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+      <div className="text-4xl sm:text-5xl mb-3 group-hover:scale-110 transition-transform">
+        📄
       </div>
+      <p className="text-sm sm:text-base text-gray-600 font-medium">
+        Haz clic para seleccionar archivos PDF
+      </p>
+      <p className="text-xs sm:text-sm text-gray-500 mt-1">
+        o arrastra y suelta aquí
+      </p>
+      <p className="text-xs text-gray-400 mt-2">
+        Puedes seleccionar múltiples archivos
+      </p>
     </div>
   );
 }
